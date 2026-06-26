@@ -16,7 +16,7 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "types": ["webmidi", "vite/client"]
+    "types": ["webmidi", "vite/client", "node"]
   },
   "include": ["src", "vite.config.ts"]
 }
