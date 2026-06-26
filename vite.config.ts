@@ -4,7 +4,9 @@ import react from "@vitejs/plugin-react";
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  base: "./",
+  // On GitHub Pages the app is served from /piano-/, so use an absolute base
+  // there; locally (dev/preview) keep a relative base so it works from root.
+  base: process.env.GITHUB_PAGES ? "/piano-/" : "./",
   server: {
     port: 5173,
     host: true,
