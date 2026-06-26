@@ -1,0 +1,33 @@
+{
+  "name": "crescendo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Crescendo — an interactive piano tutor. Upload your own sheet music and learn to read and play it, note by note.",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --port 4173",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.70.1",
+    "fflate": "^0.8.3",
+    "idb-keyval": "^6.2.1",
+    "opensheetmusicdisplay": "^1.8.7",
+    "pitchy": "^4.1.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.26.2",
+    "tone": "^15.0.4",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.5",
+    "@types/react-dom": "^18.3.0",
+    "@types/webmidi": "^2.0.10",
+    "@vitejs/plugin-react": "^4.3.1",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.3"
+  }
+}

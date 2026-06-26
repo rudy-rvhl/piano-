@@ -1,0 +1,14 @@
+node_modules
+dist
+dist-ssr
+*.local
+.DS_Store
+.vite
+*.log
+coverage
+.env
+.env.*
+!.env.example
+
+# TypeScript build info
+*.tsbuildinfo
