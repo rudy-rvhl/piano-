@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.70.1",
+    "@tonejs/midi": "^2.0.28",
     "fflate": "^0.8.3",
     "idb-keyval": "^6.2.1",
     "opensheetmusicdisplay": "^1.8.7",

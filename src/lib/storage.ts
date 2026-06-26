@@ -12,11 +12,15 @@ export interface ScoreProgress {
   lastPracticedAt?: number;
 }
 
+export type ScoreKind = "musicxml" | "pdf";
+
 export interface ScoreMeta {
   id: string;
   title: string;
   composer?: string;
   source: "builtin" | "upload";
+  /** "musicxml" content is interactive; "pdf" is view-only. */
+  kind: ScoreKind;
   createdAt: number;
   progress: ScoreProgress;
 }
@@ -33,12 +37,18 @@ function uid(): string {
 
 export async function listScores(): Promise<ScoreMeta[]> {
   const index = (await get<ScoreMeta[]>(INDEX_KEY)) ?? [];
-  return index.sort((a, b) => b.createdAt - a.createdAt);
+  return index
+    .map((m) => ({ ...m, kind: m.kind ?? "musicxml" }))
+    .sort((a, b) => b.createdAt - a.createdAt);
 }
 
-export async function getScoreXml(id: string): Promise<string | undefined> {
+/** Stored content for a score: MusicXML text, or a data: URL for a PDF. */
+export async function getScoreContent(id: string): Promise<string | undefined> {
   return get<string>(SCORE_PREFIX + id);
 }
+
+/** @deprecated use getScoreContent */
+export const getScoreXml = getScoreContent;
 
 export async function getScoreMeta(id: string): Promise<ScoreMeta | undefined> {
   const index = await listScores();
@@ -52,14 +62,17 @@ async function writeIndex(index: ScoreMeta[]): Promise<void> {
 export async function addScore(input: {
   title: string;
   composer?: string;
+  /** MusicXML text, or a data: URL for a PDF. */
   xml: string;
   source?: "builtin" | "upload";
+  kind?: ScoreKind;
 }): Promise<ScoreMeta> {
   const meta: ScoreMeta = {
     id: uid(),
     title: input.title.trim() || "Untitled",
     composer: input.composer?.trim() || undefined,
     source: input.source ?? "upload",
+    kind: input.kind ?? "musicxml",
     createdAt: Date.now(),
     progress: { timesPracticed: 0, bestAccuracy: 0 },
   };
@@ -127,6 +140,16 @@ export async function readMusicXmlFile(file: File): Promise<string> {
     throw new Error("Could not find a MusicXML document inside the .mxl file.");
   }
   return strFromU8(files[targetPath]);
+}
+
+/** Read any file as a data: URL (used for storing uploaded PDFs). */
+export function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
 }
 
 /** Quick sanity check that a string looks like MusicXML before we store it. */

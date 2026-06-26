@@ -14,9 +14,15 @@ note-reading trainer and a built-in **AI piano teacher who speaks French**.
 
 ## ✨ Features
 
-- **Upload your own music sheets** — drag-and-drop `.musicxml`, `.xml`, or
-  compressed `.mxl` files (MuseScore's default export). Scores are stored
-  privately in your browser (IndexedDB); nothing is uploaded to a server.
+- **Upload your own music** — drag-and-drop:
+  - **MusicXML** (`.musicxml`, `.xml`, `.mxl`) — fully interactive.
+  - **MIDI** (`.mid`, `.midi`) — auto-converted to notation, also fully
+    interactive.
+  - **PDF** — displayed for reading/playing along (view-only; PDFs have no note
+    data for guided practice).
+
+  Everything is stored privately in your browser (IndexedDB); nothing is
+  uploaded to a server.
 - **Interactive "wait" practice** — the core Skoove mechanic. The score's cursor
   highlights the next note(s); the matching piano key glows. Play it right and it
   turns green and advances; play a wrong note and it flashes red. You never get

@@ -15,12 +15,27 @@ export default function HelpPage() {
         <div className="card">
           <h2>🎼 1. Add your sheet music</h2>
           <p>
-            Crescendo reads <strong>MusicXML</strong> — the universal sheet-music
-            format. On the <a href="#/">Library</a> page, drop in a{" "}
-            <code>.musicxml</code>, <code>.xml</code>, or <code>.mxl</code> file.
-            Your scores are stored privately in your browser; nothing is
-            uploaded to a server.
+            On the <a href="#/">Library</a> page, drop in a file. Crescendo
+            accepts three kinds, and everything is stored privately in your
+            browser — nothing is uploaded to a server:
           </p>
+          <ul style={{ color: "var(--text-dim)", lineHeight: 1.7 }}>
+            <li>
+              <strong>MusicXML</strong> (<code>.musicxml</code>,{" "}
+              <code>.xml</code>, <code>.mxl</code>) — the universal sheet-music
+              format. Fully interactive.
+            </li>
+            <li>
+              <strong>MIDI</strong> (<code>.mid</code>, <code>.midi</code>) —
+              automatically converted to notation, so it’s fully interactive
+              too (great for the many free MIDI files online).
+            </li>
+            <li>
+              <strong>PDF</strong> — displayed for reading and playing along.
+              PDFs are images, so highlight-and-wait practice isn’t possible on
+              them; use MusicXML or MIDI for guided practice.
+            </li>
+          </ul>
           <p style={{ marginBottom: 0 }}>
             <strong>Where do I get MusicXML?</strong> It’s free:
           </p>

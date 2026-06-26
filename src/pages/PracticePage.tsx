@@ -5,37 +5,62 @@ import Piano from "../components/Piano";
 import InputControls from "../components/InputControls";
 import { ScoreEngine } from "../lib/scoreEngine";
 import { usePractice } from "../lib/usePractice";
-import { getScoreMeta, getScoreXml, type ScoreMeta } from "../lib/storage";
+import { getScoreContent, getScoreMeta, type ScoreMeta } from "../lib/storage";
 import { useSettings } from "../store/useSettings";
 import { useInstructorContext } from "../store/useInstructorContext";
 import { midiToName } from "../lib/notes";
 
 export default function PracticePage() {
   const { id = "" } = useParams();
-  const [xml, setXml] = useState<string | null>(null);
+  const [content, setContent] = useState<string | null>(null);
   const [meta, setMeta] = useState<ScoreMeta | null>(null);
   const [engine, setEngine] = useState<ScoreEngine | null>(null);
   const [notFound, setNotFound] = useState(false);
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null);
 
   const settings = useSettings();
+  const isPdf = meta?.kind === "pdf";
 
   useEffect(() => {
     let active = true;
     setEngine(null);
-    setXml(null);
-    Promise.all([getScoreXml(id), getScoreMeta(id)]).then(([x, m]) => {
+    setContent(null);
+    setMeta(null);
+    Promise.all([getScoreContent(id), getScoreMeta(id)]).then(([c, m]) => {
       if (!active) return;
-      if (!x) {
+      if (!c || !m) {
         setNotFound(true);
         return;
       }
-      setXml(x);
-      setMeta(m ?? null);
+      setContent(c);
+      setMeta(m);
     });
     return () => {
       active = false;
     };
   }, [id]);
+
+  // For PDFs, turn the stored data: URL into a blob URL the viewer can show.
+  useEffect(() => {
+    if (meta?.kind !== "pdf" || !content) {
+      setPdfUrl(null);
+      return;
+    }
+    let url: string | null = null;
+    let active = true;
+    fetch(content)
+      .then((r) => r.blob())
+      .then((b) => {
+        if (!active) return;
+        url = URL.createObjectURL(b);
+        setPdfUrl(url);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, [meta, content]);
 
   const practice = usePractice(engine, {
     scoreId: id,
@@ -112,119 +137,170 @@ export default function PracticePage() {
         <InputControls />
       </div>
 
-      <div className="practice-toolbar">
-        {!state.started ? (
-          <button
-            className="btn btn-primary"
-            onClick={practice.start}
-            disabled={!engine}
-          >
-            ▶ Start practice
-          </button>
-        ) : (
-          <button className="btn" onClick={practice.restart}>
-            ↻ Restart
-          </button>
-        )}
-        {!state.playing ? (
-          <button className="btn btn-gold" onClick={practice.play} disabled={!engine}>
-            🔈 Listen
-          </button>
-        ) : (
-          <button className="btn" onClick={practice.stop}>
-            ⏹ Stop
-          </button>
-        )}
-
-        <span style={{ flex: 1 }} />
-
-        <Toggle
-          label="Wait for me"
-          on={settings.waitMode}
-          onChange={settings.setWaitMode}
-        />
-        <Toggle
-          label="Show hints"
-          on={settings.showHints}
-          onChange={settings.setShowHints}
-        />
-        <Toggle
-          label="Any octave"
-          on={settings.octaveTolerant}
-          onChange={settings.setOctaveTolerant}
-        />
-        <Toggle
-          label="Key names"
-          on={settings.showKeyLabels}
-          onChange={settings.setShowKeyLabels}
-        />
-      </div>
-
-      {state.done ? (
-        <div className="banner" style={{ marginBottom: 14 }}>
-          🎉 <strong>Nice!</strong> You finished with {accuracyPct}% accuracy (
-          {state.hits} correct, {state.misses} slips).{" "}
-          <button
-            className="btn btn-sm btn-primary"
-            style={{ marginLeft: 8 }}
-            onClick={practice.restart}
-          >
-            Play again
-          </button>
-        </div>
+      {isPdf ? (
+        <>
+          <div className="banner warn" style={{ marginBottom: 14 }}>
+            <span>📄</span>
+            <span>
+              This is a PDF, so guided practice isn’t available (PDFs carry no
+              note data). Read it here and play along on the keyboard below, or
+              ask Maestro. For highlight-and-wait practice, upload{" "}
+              <strong>MusicXML</strong> or <strong>MIDI</strong>.
+            </span>
+          </div>
+          <div className="score-wrap" style={{ padding: 0 }}>
+            {pdfUrl ? (
+              <iframe
+                title={meta?.title ?? "PDF"}
+                src={pdfUrl}
+                style={{
+                  width: "100%",
+                  height: "72vh",
+                  border: 0,
+                  background: "#fff",
+                  borderRadius: "var(--radius)",
+                }}
+              />
+            ) : (
+              <div className="empty" style={{ minHeight: 200 }}>
+                Loading PDF…
+              </div>
+            )}
+          </div>
+          {pdfUrl && (
+            <div style={{ marginTop: 8 }}>
+              <a
+                className="btn btn-sm"
+                href={pdfUrl}
+                target="_blank"
+                rel="noreferrer"
+              >
+                ↗ Open in new tab
+              </a>
+            </div>
+          )}
+        </>
       ) : (
-        <div className="next-up">
-          <div>
-            <div className="label">
-              {state.playing
-                ? "Listening"
-                : state.started
-                  ? "Play these"
-                  : "Press Start"}
-            </div>
-            <div className="notes">
-              {state.expected.length === 0 ? (
-                <span className="muted">
-                  {state.started ? "—" : "Ready when you are"}
-                </span>
-              ) : (
-                state.expected.map((m) => (
-                  <span
-                    key={m}
-                    className={`note-chip${
-                      state.satisfied.includes(m) ? " done" : ""
-                    }`}
-                  >
-                    {midiToName(m, settings.useFlats)}
-                  </span>
-                ))
-              )}
-            </div>
+        <>
+          <div className="practice-toolbar">
+            {!state.started ? (
+              <button
+                className="btn btn-primary"
+                onClick={practice.start}
+                disabled={!engine}
+              >
+                ▶ Start practice
+              </button>
+            ) : (
+              <button className="btn" onClick={practice.restart}>
+                ↻ Restart
+              </button>
+            )}
+            {!state.playing ? (
+              <button
+                className="btn btn-gold"
+                onClick={practice.play}
+                disabled={!engine}
+              >
+                🔈 Listen
+              </button>
+            ) : (
+              <button className="btn" onClick={practice.stop}>
+                ⏹ Stop
+              </button>
+            )}
+
+            <span style={{ flex: 1 }} />
+
+            <Toggle
+              label="Wait for me"
+              on={settings.waitMode}
+              onChange={settings.setWaitMode}
+            />
+            <Toggle
+              label="Show hints"
+              on={settings.showHints}
+              onChange={settings.setShowHints}
+            />
+            <Toggle
+              label="Any octave"
+              on={settings.octaveTolerant}
+              onChange={settings.setOctaveTolerant}
+            />
+            <Toggle
+              label="Key names"
+              on={settings.showKeyLabels}
+              onChange={settings.setShowKeyLabels}
+            />
           </div>
-          <span style={{ flex: 1 }} />
-          <div className="stat">
-            <span className="num">{state.measure}</span>
-            <span className="cap">Measure</span>
+
+          {state.done ? (
+            <div className="banner" style={{ marginBottom: 14 }}>
+              🎉 <strong>Nice!</strong> You finished with {accuracyPct}% accuracy
+              ({state.hits} correct, {state.misses} slips).{" "}
+              <button
+                className="btn btn-sm btn-primary"
+                style={{ marginLeft: 8 }}
+                onClick={practice.restart}
+              >
+                Play again
+              </button>
+            </div>
+          ) : (
+            <div className="next-up">
+              <div>
+                <div className="label">
+                  {state.playing
+                    ? "Listening"
+                    : state.started
+                      ? "Play these"
+                      : "Press Start"}
+                </div>
+                <div className="notes">
+                  {state.expected.length === 0 ? (
+                    <span className="muted">
+                      {state.started ? "—" : "Ready when you are"}
+                    </span>
+                  ) : (
+                    state.expected.map((m) => (
+                      <span
+                        key={m}
+                        className={`note-chip${
+                          state.satisfied.includes(m) ? " done" : ""
+                        }`}
+                      >
+                        {midiToName(m, settings.useFlats)}
+                      </span>
+                    ))
+                  )}
+                </div>
+              </div>
+              <span style={{ flex: 1 }} />
+              <div className="stat">
+                <span className="num">{state.measure}</span>
+                <span className="cap">Measure</span>
+              </div>
+            </div>
+          )}
+
+          <div className="progress-bar" style={{ marginBottom: 8 }}>
+            <div className="progress-fill" style={{ width: `${pct}%` }} />
           </div>
-        </div>
+          <div
+            className="stat-row"
+            style={{ marginBottom: 16, justifyContent: "space-between" }}
+          >
+            <span className="muted" style={{ fontSize: "0.82rem" }}>
+              Note {Math.min(state.index + 1, state.total || 1)} of {state.total}
+            </span>
+            <span className="muted" style={{ fontSize: "0.82rem" }}>
+              ✓ {state.hits} · ✗ {state.misses} · {accuracyPct}% accuracy
+            </span>
+          </div>
+
+          <ScoreView xml={content} onReady={setEngine} />
+        </>
       )}
-
-      <div className="progress-bar" style={{ marginBottom: 8 }}>
-        <div className="progress-fill" style={{ width: `${pct}%` }} />
-      </div>
-      <div
-        className="stat-row"
-        style={{ marginBottom: 16, justifyContent: "space-between" }}
-      >
-        <span className="muted" style={{ fontSize: "0.82rem" }}>
-          Note {Math.min(state.index + 1, state.total || 1)} of {state.total}
-        </span>
-        <span className="muted" style={{ fontSize: "0.82rem" }}>
-          ✓ {state.hits} · ✗ {state.misses} · {accuracyPct}% accuracy
-        </span>
-      </div>
-
-      <ScoreView xml={xml} onReady={setEngine} />
 
       <div style={{ height: 240 }} />
 
@@ -237,7 +313,6 @@ export default function PracticePage() {
                 ? "Follow the highlighted notes"
                 : "Free play — tap the keys or use your A–K computer keys"}
           </span>
-          <span>{range.low === 48 ? "" : ""}</span>
         </div>
         <Piano
           lowMidi={range.low}

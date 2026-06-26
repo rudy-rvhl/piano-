@@ -8,9 +8,11 @@ import {
   extractTitle,
   listScores,
   looksLikeMusicXml,
+  readFileAsDataUrl,
   readMusicXmlFile,
   type ScoreMeta,
 } from "../lib/storage";
+import { importMidiFile } from "../lib/midiImport";
 import { buildSampleSongs } from "../lib/samples";
 import { useInstructorContext } from "../store/useInstructorContext";
 
@@ -40,19 +42,37 @@ export default function LibraryPage() {
       let added = 0;
       const errors: string[] = [];
       for (const file of Array.from(files)) {
+        const lower = file.name.toLowerCase();
         try {
-          const xml = await readMusicXmlFile(file);
-          if (!looksLikeMusicXml(xml)) {
-            errors.push(`${file.name}: not a MusicXML file`);
-            continue;
+          if (lower.endsWith(".pdf") || file.type === "application/pdf") {
+            // PDFs are view-only (no per-note data).
+            const dataUrl = await readFileAsDataUrl(file);
+            await addScore({
+              title: file.name.replace(/\.pdf$/i, ""),
+              xml: dataUrl,
+              source: "upload",
+              kind: "pdf",
+            });
+            added++;
+          } else if (lower.endsWith(".mid") || lower.endsWith(".midi")) {
+            // MIDI is converted to interactive notation.
+            const { title, xml } = await importMidiFile(file);
+            await addScore({ title, xml, source: "upload", kind: "musicxml" });
+            added++;
+          } else {
+            const xml = await readMusicXmlFile(file);
+            if (!looksLikeMusicXml(xml)) {
+              errors.push(`${file.name}: unsupported file (need MusicXML, MIDI, or PDF)`);
+              continue;
+            }
+            await addScore({
+              title: extractTitle(xml, file.name),
+              composer: extractComposer(xml),
+              xml,
+              source: "upload",
+            });
+            added++;
           }
-          await addScore({
-            title: extractTitle(xml, file.name),
-            composer: extractComposer(xml),
-            xml,
-            source: "upload",
-          });
-          added++;
         } catch (err) {
           errors.push(
             `${file.name}: ${
@@ -97,7 +117,7 @@ export default function LibraryPage() {
             onClick={() => fileRef.current?.click()}
             disabled={busy}
           >
-            ⬆ Upload MusicXML
+            ⬆ Upload music
           </button>
         </div>
       </div>
@@ -105,7 +125,7 @@ export default function LibraryPage() {
       <input
         ref={fileRef}
         type="file"
-        accept=".xml,.musicxml,.mxl,application/xml,text/xml"
+        accept=".xml,.musicxml,.mxl,.mid,.midi,.pdf,application/xml,text/xml,audio/midi,audio/x-midi,application/pdf"
         multiple
         hidden
         onChange={(e) => e.target.files && handleFiles(e.target.files)}
@@ -124,11 +144,12 @@ export default function LibraryPage() {
       >
         <div style={{ fontSize: "1.6rem", marginBottom: 6 }}>🎼</div>
         <div>
-          <strong>Drop a MusicXML file here</strong> or click to browse
+          <strong>Drop a file here</strong> or click to browse
         </div>
         <div className="muted" style={{ fontSize: "0.82rem", marginTop: 6 }}>
-          Supports <code>.musicxml</code>, <code>.xml</code> and{" "}
-          <code>.mxl</code>. Export any piece for free from MuseScore — see{" "}
+          <strong>MusicXML</strong> (<code>.musicxml</code>, <code>.xml</code>,{" "}
+          <code>.mxl</code>) and <strong>MIDI</strong> (<code>.mid</code>) become
+          fully interactive. <strong>PDF</strong> is view-only. See{" "}
           <a href="#/help">Help</a>.
         </div>
       </div>
@@ -160,6 +181,7 @@ export default function LibraryPage() {
                 ) : (
                   <span className="badge">Yours</span>
                 )}
+                {s.kind === "pdf" && <span className="badge gold">PDF</span>}
                 {s.progress.timesPracticed > 0 && (
                   <span className="badge gold">
                     ★ {Math.round(s.progress.bestAccuracy * 100)}%
@@ -176,7 +198,7 @@ export default function LibraryPage() {
                   className="btn btn-primary btn-sm grow"
                   onClick={() => navigate(`/practice/${s.id}`)}
                 >
-                  ▶ Practice
+                  {s.kind === "pdf" ? "👁 View" : "▶ Practice"}
                 </button>
                 <button
                   className="btn btn-danger btn-sm"
