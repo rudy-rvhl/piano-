@@ -8,7 +8,7 @@ import { midiToFreq } from "./notes";
 
 let instrument: Tone.Sampler | Tone.PolySynth | null = null;
 let usingSampler = false;
-let starting: Promise<void> | null = null;
+let samplerRequested = false;
 
 const SAMPLE_BASE = "https://tonejs.github.io/audio/salamander/";
 
@@ -57,23 +57,45 @@ function buildSynth(): Tone.PolySynth {
   return synth;
 }
 
-/** Must be called from a user gesture (click/tap) to satisfy autoplay rules. */
+/**
+ * Call from a user gesture (click/tap/keypress). Safe to call repeatedly — it
+ * resumes the audio context every time (gestures can expire across awaits) and
+ * gives instant sound via a synth, then upgrades to the sampled grand piano in
+ * the background so there's never a silent gap.
+ */
 export async function initAudio(): Promise<void> {
-  if (instrument) return;
-  if (starting) return starting;
-
-  starting = (async () => {
+  try {
     await Tone.start();
-    try {
-      instrument = await loadSampler();
-      usingSampler = true;
-    } catch {
-      instrument = buildSynth();
-      usingSampler = false;
-    }
-  })();
+  } catch {
+    /* not a user gesture yet — will resume on the next one */
+  }
 
-  return starting;
+  if (!instrument) {
+    instrument = buildSynth();
+    usingSampler = false;
+  }
+
+  if (!samplerRequested) {
+    samplerRequested = true;
+    loadSampler()
+      .then((sampler) => {
+        const previous = instrument;
+        instrument = sampler;
+        usingSampler = true;
+        if (previous && previous !== sampler) {
+          window.setTimeout(() => {
+            try {
+              (previous as { dispose?: () => void }).dispose?.();
+            } catch {
+              /* ignore */
+            }
+          }, 1500);
+        }
+      })
+      .catch(() => {
+        /* keep the synth */
+      });
+  }
 }
 
 function loadSampler(): Promise<Tone.Sampler> {

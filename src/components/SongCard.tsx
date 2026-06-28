@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import Cover from "./Cover";
 import { getScoreContent, type ScoreMeta } from "../lib/storage";
 import { startPreview, stopPreview } from "../lib/preview";
+import { initAudio } from "../lib/audio";
 
 interface SongCardProps {
   meta: ScoreMeta;
@@ -37,6 +38,9 @@ export default function SongCard({ meta, onPractice, onDelete }: SongCardProps) 
   };
 
   const onCoverClick = () => {
+    // Resume audio synchronously within the click gesture (begin() awaits IDB,
+    // which would otherwise drop the user-activation before audio starts).
+    void initAudio();
     if (playing) {
       stopPreview();
       setPlaying(false);

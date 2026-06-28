@@ -110,6 +110,15 @@ function loop() {
 
 export async function enableMic(): Promise<MicState> {
   if (state.enabled) return state;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    state = {
+      ...state,
+      enabled: false,
+      error: "Microphone needs a secure (https) page in a supported browser.",
+    };
+    emit();
+    return state;
+  }
   try {
     stream = await navigator.mediaDevices.getUserMedia({
       audio: {
@@ -132,14 +141,17 @@ export async function enableMic(): Promise<MicState> {
     emit();
     raf = requestAnimationFrame(loop);
   } catch (err) {
-    state = {
-      ...state,
-      enabled: false,
-      error:
-        err instanceof Error
-          ? err.message
-          : "Could not access the microphone.",
-    };
+    const name = err instanceof Error ? err.name : "";
+    let message = "Could not access the microphone.";
+    if (name === "NotAllowedError" || name === "SecurityError") {
+      message =
+        "Microphone blocked. Click the camera/lock icon in your browser's address bar and allow the microphone, then try again.";
+    } else if (name === "NotFoundError" || name === "OverconstrainedError") {
+      message = "No microphone found. Plug one in and try again.";
+    } else if (err instanceof Error && err.message) {
+      message = err.message;
+    }
+    state = { ...state, enabled: false, error: message };
     emit();
   }
   return state;
