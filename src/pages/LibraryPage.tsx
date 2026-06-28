@@ -15,6 +15,7 @@ import {
 import { importMidiFile } from "../lib/midiImport";
 import { buildSampleSongs } from "../lib/samples";
 import { useInstructorContext } from "../store/useInstructorContext";
+import SongCard from "../components/SongCard";
 
 export default function LibraryPage() {
   const [scores, setScores] = useState<ScoreMeta[]>([]);
@@ -178,45 +179,12 @@ export default function LibraryPage() {
       ) : (
         <div className="library-grid">
           {scores.map((s) => (
-            <div key={s.id} className="song-card">
-              <div>
-                <div className="title">{s.title}</div>
-                {s.composer && <div className="composer">{s.composer}</div>}
-              </div>
-              <div className="meta">
-                {s.source === "builtin" ? (
-                  <span className="badge dim">Sample</span>
-                ) : (
-                  <span className="badge">Yours</span>
-                )}
-                {s.kind === "pdf" && <span className="badge gold">PDF</span>}
-                {s.progress.timesPracticed > 0 && (
-                  <span className="badge gold">
-                    ★ {Math.round(s.progress.bestAccuracy * 100)}%
-                  </span>
-                )}
-                {s.progress.timesPracticed > 0 && (
-                  <span className="badge dim">
-                    {s.progress.timesPracticed}× played
-                  </span>
-                )}
-              </div>
-              <div className="actions">
-                <button
-                  className="btn btn-primary btn-sm grow"
-                  onClick={() => navigate(`/practice/${s.id}`)}
-                >
-                  {s.kind === "pdf" ? "👁 View" : "▶ Practice"}
-                </button>
-                <button
-                  className="btn btn-danger btn-sm"
-                  onClick={() => remove(s.id, s.title)}
-                  title="Remove"
-                >
-                  🗑
-                </button>
-              </div>
-            </div>
+            <SongCard
+              key={s.id}
+              meta={s}
+              onPractice={(id) => navigate(`/practice/${id}`)}
+              onDelete={remove}
+            />
           ))}
         </div>
       )}
