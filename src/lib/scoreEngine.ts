@@ -10,14 +10,27 @@ import { OpenSheetMusicDisplay } from "opensheetmusicdisplay";
 
 export const OSMD_HALFTONE_TO_MIDI = 12;
 
+export type Hand = "both" | "right" | "left";
+
 export interface PracticeStep {
   /** Sounding MIDI notes at this onset, ascending. Empty when it's a rest. */
   midis: number[];
+  /** Notes on the top staff (right hand). */
+  rightMidis: number[];
+  /** Notes on the lower staff/staves (left hand). */
+  leftMidis: number[];
   isRest: boolean;
   /** Onset duration in quarter-note beats. */
   durationBeats: number;
   /** 1-based measure number for display. */
   measure: number;
+}
+
+/** Notes for a step restricted to the selected hand. */
+export function stepHandMidis(step: PracticeStep, hand: Hand): number[] {
+  if (hand === "right") return step.rightMidis;
+  if (hand === "left") return step.leftMidis;
+  return step.midis;
 }
 
 export class ScoreEngine {
@@ -64,16 +77,21 @@ export class ScoreEngine {
     }
   }
 
-  /** Convert an OSMD note to a MIDI number, or null for rests. */
-  private noteToMidi(note: unknown): number | null {
+  /** Convert an OSMD note to { midi, staff }; staff 0 = top staff (right hand). */
+  private noteInfo(note: unknown): { midi: number; staff: number } | null {
     const n = note as {
       isRest?: () => boolean;
       Pitch?: { halfTone?: number };
+      ParentStaffEntry?: { ParentStaff?: { idInMusicSheet?: number } };
     };
     try {
       if (typeof n.isRest === "function" && n.isRest()) return null;
       if (!n.Pitch || typeof n.Pitch.halfTone !== "number") return null;
-      return n.Pitch.halfTone + OSMD_HALFTONE_TO_MIDI;
+      const staff = n.ParentStaffEntry?.ParentStaff?.idInMusicSheet;
+      return {
+        midi: n.Pitch.halfTone + OSMD_HALFTONE_TO_MIDI,
+        staff: typeof staff === "number" ? staff : 0,
+      };
     } catch {
       return null;
     }
@@ -89,15 +107,21 @@ export class ScoreEngine {
       guard++;
       const notes = (cursor.NotesUnderCursor() ?? []) as unknown[];
       const midis: number[] = [];
+      const rightMidis: number[] = [];
+      const leftMidis: number[] = [];
       let durationBeats = 1;
       let measure = 1;
       for (const note of notes) {
-        const midi = this.noteToMidi(note);
+        const info = this.noteInfo(note);
         const len = (note as { Length?: { RealValue?: number } }).Length;
         if (len && typeof len.RealValue === "number") {
           durationBeats = Math.max(durationBeats, len.RealValue * 4);
         }
-        if (midi !== null) midis.push(midi);
+        if (info) {
+          midis.push(info.midi);
+          if (info.staff === 0) rightMidis.push(info.midi);
+          else leftMidis.push(info.midi);
+        }
       }
       try {
         const ts = cursor.Iterator.CurrentMeasure?.MeasureNumber;
@@ -105,9 +129,14 @@ export class ScoreEngine {
       } catch {
         /* ignore */
       }
-      midis.sort((a, b) => a - b);
+      const asc = (a: number, b: number) => a - b;
+      midis.sort(asc);
+      rightMidis.sort(asc);
+      leftMidis.sort(asc);
       steps.push({
         midis,
+        rightMidis,
+        leftMidis,
         isRest: midis.length === 0,
         durationBeats: clampDuration(durationBeats),
         measure,
@@ -157,14 +186,23 @@ export class ScoreEngine {
   }
 
   /** Notes the player must currently produce, read live from the cursor. */
-  expectedMidis(): number[] {
+  expectedMidis(hand: Hand = "both"): number[] {
     const notes = (this.osmd.cursor.NotesUnderCursor() ?? []) as unknown[];
     const out: number[] = [];
     for (const note of notes) {
-      const midi = this.noteToMidi(note);
-      if (midi !== null) out.push(midi);
+      const info = this.noteInfo(note);
+      if (!info) continue;
+      const isRight = info.staff === 0;
+      if (hand === "right" && !isRight) continue;
+      if (hand === "left" && isRight) continue;
+      out.push(info.midi);
     }
     return out.sort((a, b) => a - b);
+  }
+
+  /** True when the piece has a separate left-hand (lower) staff. */
+  get hasLeftHand(): boolean {
+    return this.steps.some((s) => s.leftMidis.length > 0);
   }
 
   /** Total practice notes (excludes rests), for accuracy/progress maths. */

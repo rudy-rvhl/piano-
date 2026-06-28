@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import ScoreView from "../components/ScoreView";
 import Piano from "../components/Piano";
 import InputControls from "../components/InputControls";
-import { ScoreEngine } from "../lib/scoreEngine";
+import { ScoreEngine, stepHandMidis } from "../lib/scoreEngine";
 import { usePractice } from "../lib/usePractice";
 import { getScoreContent, getScoreMeta, type ScoreMeta } from "../lib/storage";
 import { useSettings } from "../store/useSettings";
@@ -69,8 +69,17 @@ export default function PracticePage() {
     waitMode: settings.waitMode,
     octaveTolerant: settings.octaveTolerant,
     showHints: settings.showHints,
+    hand: settings.hand,
   });
   const { state, hints } = practice;
+
+  // Restart the run when the player switches hands mid-piece.
+  const handRef = useRef(settings.hand);
+  useEffect(() => {
+    if (handRef.current === settings.hand) return;
+    handRef.current = settings.hand;
+    if (state.started) practice.restart();
+  }, [settings.hand, state.started, practice]);
 
   // Keep the AI instructor aware of what's being practised.
   const setInstructorContext = useInstructorContext((s) => s.setContext);
@@ -135,10 +144,15 @@ export default function PracticePage() {
   const pct = state.total ? Math.round((state.index / state.total) * 100) : 0;
   const accuracyPct = Math.round(state.accuracy * 100);
 
-  // Note(s) the guide should explain right now.
+  // Note(s) the guide should explain right now (respecting the chosen hand).
+  const firstHandStep = engine?.steps.find(
+    (s) => stepHandMidis(s, settings.hand).length > 0,
+  );
   const coachMidis = state.expected.length
     ? state.expected
-    : engine?.steps.find((s) => !s.isRest)?.midis ?? [];
+    : firstHandStep
+      ? stepHandMidis(firstHandStep, settings.hand)
+      : [];
   const coachCaption = state.playing
     ? "Now playing"
     : state.started
@@ -229,6 +243,30 @@ export default function PracticePage() {
               <button className="btn" onClick={practice.stop}>
                 ⏹ Stop
               </button>
+            )}
+
+            {engine?.hasLeftHand && (
+              <div className="segmented" role="group" aria-label="Hands">
+                <span className="seg-label">Hands</span>
+                <button
+                  className={`seg-btn${settings.hand === "both" ? " on" : ""}`}
+                  onClick={() => settings.setHand("both")}
+                >
+                  Both
+                </button>
+                <button
+                  className={`seg-btn${settings.hand === "right" ? " on" : ""}`}
+                  onClick={() => settings.setHand("right")}
+                >
+                  Right
+                </button>
+                <button
+                  className={`seg-btn${settings.hand === "left" ? " on" : ""}`}
+                  onClick={() => settings.setHand("left")}
+                >
+                  Left
+                </button>
+              </div>
             )}
 
             <div className="segmented" role="group" aria-label="Note labels">

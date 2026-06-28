@@ -4,7 +4,7 @@
 // It also powers note-by-note playback so learners can hear the piece.
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ScoreEngine } from "./scoreEngine";
+import { ScoreEngine, type Hand } from "./scoreEngine";
 import { noteBus } from "./noteBus";
 import { playChord } from "./audio";
 import { recordPractice } from "./storage";
@@ -29,6 +29,7 @@ interface Options {
   waitMode: boolean;
   octaveTolerant: boolean;
   showHints: boolean;
+  hand: Hand;
 }
 
 const sameClass = (a: number, b: number) => (a - b) % 12 === 0;
@@ -97,8 +98,15 @@ export function usePractice(engine: ScoreEngine | null, opts: Options) {
   // Move past any rests, then load the notes due at the cursor.
   const loadStep = useCallback(() => {
     if (!engine) return;
-    while (!engine.atEnd() && engine.current?.isRest) engine.next();
-    expectedRef.current = engine.expectedMidis();
+    const hand = optsRef.current.hand;
+    // Skip rests and onsets where the selected hand has nothing to play.
+    while (
+      !engine.atEnd() &&
+      (engine.current?.isRest || engine.expectedMidis(hand).length === 0)
+    ) {
+      engine.next();
+    }
+    expectedRef.current = engine.expectedMidis(hand);
     satisfiedRef.current = new Set();
   }, [engine]);
 
@@ -119,7 +127,7 @@ export function usePractice(engine: ScoreEngine | null, opts: Options) {
       return;
     }
     loadStep();
-    if (engine.atEnd() && (engine.current?.isRest ?? true)) {
+    if (engine.atEnd()) {
       finish();
       return;
     }

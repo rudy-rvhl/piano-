@@ -1,7 +1,11 @@
 // Public-domain melodies that seed a fresh library so the app is useful before
 // the user uploads anything. Each is a compact note array compiled to MusicXML.
 
-import { buildMusicXML, type SimpleNote } from "./musicxmlBuilder";
+import {
+  buildGrandStaffMusicXML,
+  buildMusicXML,
+  type SimpleNote,
+} from "./musicxmlBuilder";
 
 const q = (midi: number | null): SimpleNote => ({ midi, beats: 1 });
 const h = (midi: number | null): SimpleNote => ({ midi, beats: 2 });
@@ -107,6 +111,18 @@ const bassWarmup: SimpleNote[] = [
   h(C3), h(C2),
 ];
 
+// --- Left-hand (bass) accompaniments for two-hand versions -----------------
+const G2 = 43,
+  F2 = 41;
+const wn = (m: number): SimpleNote => ({ midi: m, beats: 4 }); // whole note
+
+// One whole-note root per measure, aligned to the right-hand measures.
+const firstStepsLeft: SimpleNote[] = [C3, C3, G2, C3, C3, C3, G2, C3].map(wn);
+const odeToJoyLeft: SimpleNote[] = [C3, G2, C3, G2, C3, G2, C3, C3].map(wn);
+const twinkleLeft: SimpleNote[] = [
+  C3, F2, C3, G2, C3, G2, C3, G2, C3, F2, C3, G2,
+].map(wn);
+
 export interface SampleSong {
   title: string;
   composer?: string;
@@ -115,6 +131,33 @@ export interface SampleSong {
 
 export function buildSampleSongs(): SampleSong[] {
   return [
+    {
+      title: "First Steps · Two Hands",
+      composer: "Crescendo",
+      xml: buildGrandStaffMusicXML(firstSteps, firstStepsLeft, {
+        title: "First Steps · Two Hands",
+        composer: "Crescendo",
+        tempo: 90,
+      }),
+    },
+    {
+      title: "Ode to Joy · Two Hands",
+      composer: "Ludwig van Beethoven",
+      xml: buildGrandStaffMusicXML(odeToJoy, odeToJoyLeft, {
+        title: "Ode to Joy · Two Hands",
+        composer: "Ludwig van Beethoven",
+        tempo: 100,
+      }),
+    },
+    {
+      title: "Twinkle · Two Hands",
+      composer: "Traditional",
+      xml: buildGrandStaffMusicXML(twinkle, twinkleLeft, {
+        title: "Twinkle · Two Hands",
+        composer: "Traditional",
+        tempo: 100,
+      }),
+    },
     {
       title: "First Steps in C",
       composer: "Crescendo",

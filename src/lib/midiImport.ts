@@ -3,15 +3,17 @@
 // wait-mode practice). MIDI is machine-readable, so unlike PDF it can be made
 // fully interactive.
 //
-// The conversion quantises note onsets/durations to a 16th-note grid, groups
-// simultaneous notes into chords, fills gaps with rests, and splits notes that
-// cross barlines into tied pieces — enough to produce clean, playable notation
-// from typical MIDI without a full notation engine.
+// Notes are split into a right hand (>= middle C, treble) and left hand
+// (< middle C, bass) and rendered as a piano grand staff, so two-hand pieces
+// keep both hands. The conversion quantises onsets/durations to a 16th grid,
+// groups simultaneous notes into chords, fills gaps with rests, and splits
+// notes that cross barlines into tied pieces.
 
 import { Midi } from "@tonejs/midi";
 
 const GRID = 0.25; // quantise to 16th notes (in quarter-note beats)
 const DIVISIONS = 4; // MusicXML duration units per quarter note
+const SPLIT = 60; // middle C: >= -> right hand, < -> left hand
 
 interface Piece {
   beats: number;
@@ -19,7 +21,6 @@ interface Piece {
   dots: number;
 }
 
-// Standard note values, largest first, for greedy duration decomposition.
 const DURATIONS: Piece[] = [
   { beats: 4, type: "whole", dots: 0 },
   { beats: 3, type: "half", dots: 1 },
@@ -52,6 +53,12 @@ interface Event {
   isRest: boolean;
 }
 
+interface RawNote {
+  midi: number;
+  start: number;
+  dur: number;
+}
+
 const snap = (x: number) => Math.round(x / GRID) * GRID;
 
 function decompose(total: number): Piece[] {
@@ -72,12 +79,22 @@ function midiToStepOctave(midi: number) {
   return { step, alter, octave: Math.floor(midi / 12) - 1 };
 }
 
+function voiceTag(voice?: number): string {
+  return voice ? `<voice>${voice}</voice>` : "";
+}
+
+function staffTag(staff?: number): string {
+  return staff ? `<staff>${staff}</staff>` : "";
+}
+
 function noteXml(
   midi: number,
   piece: Piece,
   isChord: boolean,
   tieStart: boolean,
   tieStop: boolean,
+  staff?: number,
+  voice?: number,
 ): string {
   const { step, alter, octave } = midiToStepOctave(midi);
   const dur = Math.round(piece.beats * DIVISIONS);
@@ -93,29 +110,74 @@ function noteXml(
       : "";
   return `      <note>${isChord ? "<chord/>" : ""}<pitch><step>${step}</step>${
     alter ? `<alter>${alter}</alter>` : ""
-  }<octave>${octave}</octave></pitch>${tie}<duration>${dur}</duration><type>${
-    piece.type
-  }</type>${dots}${alter ? "<accidental>sharp</accidental>" : ""}${tied}</note>`;
+  }<octave>${octave}</octave></pitch><duration>${dur}</duration>${tie}${voiceTag(voice)}<type>${piece.type}</type>${dots}${
+    alter ? "<accidental>sharp</accidental>" : ""
+  }${staffTag(staff)}${tied}</note>`;
 }
 
-function restXml(piece: Piece): string {
+function restXml(piece: Piece, staff?: number, voice?: number): string {
   const dur = Math.round(piece.beats * DIVISIONS);
-  return `      <note><rest/><duration>${dur}</duration><type>${
-    piece.type
-  }</type>${"<dot/>".repeat(piece.dots)}</note>`;
+  return `      <note><rest/><duration>${dur}</duration>${voiceTag(voice)}<type>${piece.type}</type>${"<dot/>".repeat(piece.dots)}${staffTag(
+    staff,
+  )}</note>`;
 }
 
-function eventsToMusicXml(
-  events: Event[],
-  opts: {
-    beatsPerMeasure: number;
-    beatType: number;
-    clef: "treble" | "bass";
-    tempo: number;
-    title: string;
-  },
+function measureRestXml(
+  capacity: number,
+  staff?: number,
+  voice?: number,
 ): string {
-  const capacity = opts.beatsPerMeasure * (4 / opts.beatType);
+  return `      <note><rest measure="yes"/><duration>${Math.round(
+    capacity * DIVISIONS,
+  )}</duration>${voiceTag(voice)}${staffTag(staff)}</note>`;
+}
+
+const sumBeats = (events: Event[]) =>
+  events.reduce((a, e) => a + e.beats, 0);
+
+/** Tile a set of notes into chords + rests across the timeline. */
+function buildEvents(notes: RawNote[]): Event[] {
+  const byOnset = new Map<number, Set<number>>();
+  const durByOnset = new Map<number, number>();
+  for (const n of notes) {
+    if (!byOnset.has(n.start)) byOnset.set(n.start, new Set());
+    byOnset.get(n.start)!.add(n.midi);
+    durByOnset.set(n.start, Math.max(durByOnset.get(n.start) ?? 0, n.dur));
+  }
+  const onsets = [...byOnset.keys()].sort((a, b) => a - b);
+  const events: Event[] = [];
+  if (onsets.length && onsets[0] > 0) {
+    events.push({ midis: [], beats: onsets[0], isRest: true });
+  }
+  for (let i = 0; i < onsets.length; i++) {
+    const on = onsets[i];
+    const next = onsets[i + 1];
+    const maxDur = durByOnset.get(on)!;
+    const seg = next != null ? snap(next - on) : maxDur;
+    const chordDur = Math.max(GRID, Math.min(maxDur, seg));
+    events.push({
+      midis: [...byOnset.get(on)!].sort((a, b) => a - b),
+      beats: chordDur,
+      isRest: false,
+    });
+    const gap = snap(seg - chordDur);
+    if (gap > 1e-9) events.push({ midis: [], beats: gap, isRest: true });
+  }
+  return events;
+}
+
+function padEvents(events: Event[], targetBeats: number): void {
+  const gap = snap(targetBeats - sumBeats(events));
+  if (gap > 1e-9) events.push({ midis: [], beats: gap, isRest: true });
+}
+
+/** Build per-measure note XML for one voice/staff. */
+function buildMeasures(
+  events: Event[],
+  capacity: number,
+  staff?: number,
+  voice?: number,
+): string[][] {
   const measures: string[][] = [[]];
   let mi = 0;
   let pos = 0;
@@ -136,11 +198,11 @@ function eventsToMusicXml(
         const willHaveMore =
           pIdx < pieces.length - 1 || snap(remaining - take) > 1e-9;
         if (ev.isRest) {
-          measures[mi].push(restXml(pc));
+          measures[mi].push(restXml(pc, staff, voice));
         } else {
           ev.midis.forEach((m, ci) => {
             measures[mi].push(
-              noteXml(m, pc, ci > 0, willHaveMore, !firstPiece),
+              noteXml(m, pc, ci > 0, willHaveMore, !firstPiece, staff, voice),
             );
           });
         }
@@ -151,16 +213,49 @@ function eventsToMusicXml(
       remaining = snap(remaining - take);
     }
   }
-
   if (measures.length > 1 && measures[measures.length - 1].length === 0) {
     measures.pop();
   }
+  return measures;
+}
 
+interface AssembleOpts {
+  beatsPerMeasure: number;
+  beatType: number;
+  tempo: number;
+  title: string;
+}
+
+function escapeXml(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+function docWrap(measureXml: string, title: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
+<score-partwise version="3.1">
+  <work><work-title>${escapeXml(title)}</work-title></work>
+  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
+  <part id="P1">
+${measureXml}
+  </part>
+</score-partwise>`;
+}
+
+function tempoDirection(tempo: number): string {
+  return `      <direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${tempo}</per-minute></metronome></direction-type></direction>\n`;
+}
+
+function assembleSingle(
+  measures: string[][],
+  clef: "treble" | "bass",
+  opts: AssembleOpts,
+): string {
+  const capacity = opts.beatsPerMeasure * (4 / opts.beatType);
   const clefXml =
-    opts.clef === "treble"
+    clef === "treble"
       ? "<sign>G</sign><line>2</line>"
       : "<sign>F</sign><line>4</line>";
-
   const measureXml = measures
     .map((notes, i) => {
       const attrs =
@@ -171,31 +266,55 @@ function eventsToMusicXml(
         <time><beats>${opts.beatsPerMeasure}</beats><beat-type>${opts.beatType}</beat-type></time>
         <clef>${clefXml}</clef>
       </attributes>
-      <direction placement="above"><direction-type><metronome><beat-unit>quarter</beat-unit><per-minute>${opts.tempo}</per-minute></metronome></direction-type></direction>\n`
+${tempoDirection(opts.tempo)}`
           : "";
       const body = notes.length
         ? notes.join("\n")
         : `      <note><rest measure="yes"/><duration>${Math.round(
             capacity * DIVISIONS,
           )}</duration></note>`;
-      return `    <measure number="${i + 1}">\n${attrs}${body}\n    </measure>`;
+      return `    <measure number="${i + 1}">
+${attrs}${body}
+    </measure>`;
     })
     .join("\n");
+  return docWrap(measureXml, opts.title);
+}
 
-  const safeTitle = opts.title
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE score-partwise PUBLIC "-//Recordare//DTD MusicXML 3.1 Partwise//EN" "http://www.musicxml.org/dtds/partwise.dtd">
-<score-partwise version="3.1">
-  <work><work-title>${safeTitle}</work-title></work>
-  <part-list><score-part id="P1"><part-name>Piano</part-name></score-part></part-list>
-  <part id="P1">
-${measureXml}
-  </part>
-</score-partwise>`;
+function assembleGrand(
+  rm: string[][],
+  lm: string[][],
+  opts: AssembleOpts,
+): string {
+  const capacity = opts.beatsPerMeasure * (4 / opts.beatType);
+  const backupDur = Math.round(capacity * DIVISIONS);
+  const count = Math.max(rm.length, lm.length, 1);
+  const measureXml = Array.from({ length: count }, (_unused, i) => {
+    const attrs =
+      i === 0
+        ? `      <attributes>
+        <divisions>${DIVISIONS}</divisions>
+        <key><fifths>0</fifths></key>
+        <time><beats>${opts.beatsPerMeasure}</beats><beat-type>${opts.beatType}</beat-type></time>
+        <staves>2</staves>
+        <clef number="1"><sign>G</sign><line>2</line></clef>
+        <clef number="2"><sign>F</sign><line>4</line></clef>
+      </attributes>
+${tempoDirection(opts.tempo)}`
+        : "";
+    const right = rm[i]?.length
+      ? rm[i].join("\n")
+      : measureRestXml(capacity, 1, 1);
+    const left = lm[i]?.length
+      ? lm[i].join("\n")
+      : measureRestXml(capacity, 2, 2);
+    return `    <measure number="${i + 1}">
+${attrs}${right}
+      <backup><duration>${backupDur}</duration></backup>
+${left}
+    </measure>`;
+  }).join("\n");
+  return docWrap(measureXml, opts.title);
 }
 
 export interface MidiImportResult {
@@ -211,9 +330,9 @@ export async function importMidiFile(file: File): Promise<MidiImportResult> {
   const beatsPerMeasure = ts[0] ?? 4;
   const beatType = ts[1] ?? 4;
   const tempo = Math.round(midi.header.tempos[0]?.bpm ?? 100) || 100;
+  const capacity = beatsPerMeasure * (4 / beatType);
 
-  // Collect notes from all pitched (non-percussion) tracks.
-  const raw: { midi: number; start: number; dur: number }[] = [];
+  const raw: RawNote[] = [];
   for (const track of midi.tracks) {
     if (track.instrument?.percussion) continue;
     for (const n of track.notes) {
@@ -228,51 +347,33 @@ export async function importMidiFile(file: File): Promise<MidiImportResult> {
     throw new Error("No playable notes found in this MIDI file.");
   }
 
-  // Group simultaneous notes (same onset) into chords.
-  const byOnset = new Map<number, Set<number>>();
-  const durByOnset = new Map<number, number>();
-  for (const n of raw) {
-    if (!byOnset.has(n.start)) byOnset.set(n.start, new Set());
-    byOnset.get(n.start)!.add(n.midi);
-    durByOnset.set(n.start, Math.max(durByOnset.get(n.start) ?? 0, n.dur));
-  }
-  const onsets = [...byOnset.keys()].sort((a, b) => a - b);
-
-  // Tile the timeline with chords + rests.
-  const events: Event[] = [];
-  if (onsets[0] > 0) {
-    events.push({ midis: [], beats: onsets[0], isRest: true });
-  }
-  for (let i = 0; i < onsets.length; i++) {
-    const on = onsets[i];
-    const next = onsets[i + 1];
-    const maxDur = durByOnset.get(on)!;
-    const seg = next != null ? snap(next - on) : maxDur;
-    const chordDur = Math.max(GRID, Math.min(maxDur, seg));
-    events.push({
-      midis: [...byOnset.get(on)!].sort((a, b) => a - b),
-      beats: chordDur,
-      isRest: false,
-    });
-    const gap = snap(seg - chordDur);
-    if (gap > 1e-9) events.push({ midis: [], beats: gap, isRest: true });
-  }
-
-  // Clef by median pitch.
-  const sorted = raw.map((n) => n.midi).sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)];
-  const clef: "treble" | "bass" = median >= 60 ? "treble" : "bass";
-
   const title =
     (midi.name && midi.name.trim()) ||
     file.name.replace(/\.midi?$/i, "").replace(/_/g, " ");
+  const opts: AssembleOpts = { beatsPerMeasure, beatType, tempo, title };
 
-  const xml = eventsToMusicXml(events, {
-    beatsPerMeasure,
-    beatType,
-    clef,
-    tempo,
-    title,
-  });
-  return { title, xml };
+  const right = raw.filter((n) => n.midi >= SPLIT);
+  const left = raw.filter((n) => n.midi < SPLIT);
+
+  // Two hands -> grand staff.
+  if (right.length && left.length) {
+    const rEvents = buildEvents(right);
+    const lEvents = buildEvents(left);
+    const target = Math.max(sumBeats(rEvents), sumBeats(lEvents));
+    const measureCount = Math.max(1, Math.ceil(target / capacity - 1e-9));
+    const fill = measureCount * capacity;
+    padEvents(rEvents, fill);
+    padEvents(lEvents, fill);
+    const rm = buildMeasures(rEvents, capacity, 1, 1);
+    const lm = buildMeasures(lEvents, capacity, 2, 2);
+    return { title, xml: assembleGrand(rm, lm, opts) };
+  }
+
+  // Single staff (melody-only).
+  const notes = right.length ? right : left;
+  const sorted = notes.map((n) => n.midi).sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  const clef: "treble" | "bass" = median >= SPLIT ? "treble" : "bass";
+  const measures = buildMeasures(buildEvents(notes), capacity);
+  return { title, xml: assembleSingle(measures, clef, opts) };
 }

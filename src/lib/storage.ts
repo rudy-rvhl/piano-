@@ -3,7 +3,7 @@
 // ~5 MB localStorage ceiling. A lightweight metadata index lets the library
 // list pieces without loading every file.
 
-import { get, set, del, keys } from "idb-keyval";
+import { get, set, del } from "idb-keyval";
 import { unzipSync, strFromU8 } from "fflate";
 
 export interface ScoreProgress {
@@ -27,7 +27,7 @@ export interface ScoreMeta {
 
 const INDEX_KEY = "crescendo:index";
 const SCORE_PREFIX = "crescendo:score:";
-const SEED_FLAG = "crescendo:seeded:v1";
+const SEED_TITLES = "crescendo:seededTitles";
 
 function uid(): string {
   return (
@@ -195,20 +195,27 @@ export function ensureSeeded(
   return seedingPromise;
 }
 
-/** One-time seeding of built-in sample songs. */
+/**
+ * Add any built-in samples that haven't been seeded before (tracked by title).
+ * New samples in later releases get added once; samples the user deleted stay
+ * deleted; nothing is duplicated.
+ */
 export async function seedBuiltins(
   samples: { title: string; composer?: string; xml: string }[],
 ): Promise<void> {
-  const seeded = await get<boolean>(SEED_FLAG);
-  if (seeded) return;
-  const existing = await keys();
-  if (existing.length > 0 && (await get<ScoreMeta[]>(INDEX_KEY))?.length) {
-    // Library already has content; just mark seeded so we don't double up.
-    await set(SEED_FLAG, true);
-    return;
+  let seededTitles = await get<string[]>(SEED_TITLES);
+  if (!seededTitles) {
+    // Migrate: treat any built-ins already in the library as "seeded".
+    const index = (await get<ScoreMeta[]>(INDEX_KEY)) ?? [];
+    seededTitles = index
+      .filter((s) => s.source === "builtin")
+      .map((s) => s.title);
   }
+  const have = new Set(seededTitles);
   for (const s of samples) {
+    if (have.has(s.title)) continue;
     await addScore({ ...s, source: "builtin" });
+    have.add(s.title);
   }
-  await set(SEED_FLAG, true);
+  await set(SEED_TITLES, [...have]);
 }
