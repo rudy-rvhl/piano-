@@ -9,6 +9,8 @@ import { getScoreContent, getScoreMeta, type ScoreMeta } from "../lib/storage";
 import { useSettings } from "../store/useSettings";
 import { useInstructorContext } from "../store/useInstructorContext";
 import { midiToName } from "../lib/notes";
+import NoteCoach from "../components/NoteCoach";
+import { annotateMusicXml } from "../lib/noteTeacher";
 
 export default function PracticePage() {
   const { id = "" } = useParams();
@@ -109,6 +111,15 @@ export default function PracticePage() {
     return { low: Math.max(21, low), high: Math.min(108, high) };
   }, [engine]);
 
+  // Annotate the sheet with note-name lyrics when labels are enabled.
+  const displayedXml = useMemo(
+    () =>
+      content && !isPdf
+        ? annotateMusicXml(content, settings.noteLabels)
+        : content,
+    [content, isPdf, settings.noteLabels],
+  );
+
   if (notFound) {
     return (
       <div className="empty-state">
@@ -123,6 +134,16 @@ export default function PracticePage() {
 
   const pct = state.total ? Math.round((state.index / state.total) * 100) : 0;
   const accuracyPct = Math.round(state.accuracy * 100);
+
+  // Note(s) the guide should explain right now.
+  const coachMidis = state.expected.length
+    ? state.expected
+    : engine?.steps.find((s) => !s.isRest)?.midis ?? [];
+  const coachCaption = state.playing
+    ? "Now playing"
+    : state.started
+      ? "Play this"
+      : "First note";
 
   return (
     <div>
@@ -210,8 +231,39 @@ export default function PracticePage() {
               </button>
             )}
 
+            <div className="segmented" role="group" aria-label="Note labels">
+              <span className="seg-label">Labels</span>
+              <button
+                className={`seg-btn${settings.noteLabels === "off" ? " on" : ""}`}
+                onClick={() => settings.setNoteLabels("off")}
+              >
+                Off
+              </button>
+              <button
+                className={`seg-btn${
+                  settings.noteLabels === "letters" ? " on" : ""
+                }`}
+                onClick={() => settings.setNoteLabels("letters")}
+              >
+                ABC
+              </button>
+              <button
+                className={`seg-btn${
+                  settings.noteLabels === "solfege" ? " on" : ""
+                }`}
+                onClick={() => settings.setNoteLabels("solfege")}
+              >
+                Do Ré Mi
+              </button>
+            </div>
+
             <span style={{ flex: 1 }} />
 
+            <Toggle
+              label="Note guide"
+              on={settings.showNoteGuide}
+              onChange={settings.setShowNoteGuide}
+            />
             <Toggle
               label="Wait for me"
               on={settings.waitMode}
@@ -298,7 +350,15 @@ export default function PracticePage() {
             </span>
           </div>
 
-          <ScoreView xml={content} onReady={setEngine} />
+          {settings.showNoteGuide && (
+            <NoteCoach
+              midis={coachMidis}
+              useFlats={settings.useFlats}
+              caption={coachCaption}
+            />
+          )}
+
+          <ScoreView xml={displayedXml} onReady={setEngine} />
         </>
       )}
 

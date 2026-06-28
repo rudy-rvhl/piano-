@@ -104,13 +104,13 @@ export default function LibraryPage() {
 
   return (
     <div>
-      <div className="page-head">
-        <div>
-          <h1>Your Library</h1>
-          <div className="sub">
-            Upload your own sheet music and learn to play it, note by note.
-          </div>
-        </div>
+      <div className="hero">
+        <div className="blob" />
+        <h1>Learn piano your way 🎹</h1>
+        <p>
+          Upload your own sheet music — MusicXML, MIDI, or PDF — and Crescendo
+          shows you exactly which notes to play and teaches you to read them.
+        </p>
         <div className="btn-row">
           <button
             className="btn btn-primary"
@@ -119,6 +119,12 @@ export default function LibraryPage() {
           >
             ⬆ Upload music
           </button>
+          <a className="btn btn-ghost" href="#/read">
+            🎼 Train note reading
+          </a>
+          <a className="btn btn-ghost" href="#/teacher">
+            🎓 Ask the teacher
+          </a>
         </div>
       </div>
 
@@ -161,6 +167,8 @@ export default function LibraryPage() {
       )}
 
       {busy && <p>Reading file…</p>}
+
+      {scores.length > 0 && <div className="section-title">Your pieces</div>}
 
       {scores.length === 0 && !busy ? (
         <div className="empty-state">
